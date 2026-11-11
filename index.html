@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script src="assets/fernet.txt"></script>
+
+        <style>
+            *{
+                gap:10px;
+            }
+
+            body{
+                display:flex;
+                flex-direction: column; 
+                justify-content: center;
+                align-items:center; 
+            }
+
+            #TokenButton{
+                width:20vw;
+                height:40px;
+                background-color: #FFAD36;
+                border-color:black;
+                border-style:solid;
+            }
+
+            #TokenButton:hover{
+                background-color:#FFC46E;
+            }
+
+            #TokenText{
+                width:40vw;
+                height:20vh;
+            }
+        </style>
+    </head>
+    <body>
+        <button id="TokenButton" onclick="ActivateToken()"> Enter Token </button>
+        <textarea id="TokenText"></textarea>
+        <script>
+            const SALT = "my-fixed-salt-2026";
+            const ITERATIONS = 600000;
+
+            async function decryptMessage(encryptedMsg,password) {
+
+                try {
+                    const key = await deriveFernetKey(password);
+                    const secret = new fernet.Secret(key);
+                    const token = new fernet.Token({
+                        secret: secret,
+                        token: encryptedMsg,
+                        ttl: 0
+                    });
+                    const decrypted = token.decode();
+                    return decrypted
+                } catch (error) {
+                    console.log("Wrong password or invalid encrypted message." + error);
+                }
+            }
+
+            async function deriveFernetKey(password) {
+                const encoder = new TextEncoder();
+                const passwordBytes = encoder.encode(password);
+                const importedKey = await crypto.subtle.importKey(
+                    "raw",
+                    passwordBytes,
+                    "PBKDF2",
+                    false,
+                    ["deriveBits"]
+                );
+
+                const derivedBits = await crypto.subtle.deriveBits(
+                    {
+                        name: "PBKDF2",
+                        salt: encoder.encode(SALT),
+                        iterations: ITERATIONS,
+                        hash: "SHA-256"
+                    },
+                    importedKey,
+                    256
+                );
+
+                const bytes = new Uint8Array(derivedBits);
+                let binary = "";
+
+                for (let i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+
+                return btoa(binary)
+                    .replace(/\+/g, "-")
+                    .replace(/\//g, "_")
+                    .replace(/=+$/, "");
+            }
+
+            async function fetchData(directory, type = "auto") {
+                try {
+                    const response = await fetch(directory);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+
+                    switch (type) {
+                        case "txt":
+                            return await response.text();
+
+                        case "json":
+                            return await response.json();
+
+                        case "blob":
+                            return await response.blob();
+
+                        case "arrayBuffer":
+                            return await response.arrayBuffer();
+
+                        case "formData":
+                            return await response.formData();
+
+                        case "bytes":
+                            return new Uint8Array(await response.arrayBuffer());
+
+                        case "auto": {
+                            const contentType = response.headers.get("content-type") || "";
+
+                            if (contentType.includes("application/json") ||
+                                contentType.includes("+json")) {
+                                return await response.json();
+                            }
+
+                            if (contentType.startsWith("text/") ||
+                                contentType.includes("xml") ||
+                                contentType.includes("javascript") ||
+                                contentType.includes("svg")) {
+                                return await response.text();
+                            }
+
+                            return await response.blob();
+                        }
+
+                        default:
+                            throw new Error(`Unsupported response type: ${type}`);
+                    }
+
+                } catch (error) {
+                    console.error("Failed to fetch data:", error);
+                    return null;
+                }
+            }
+
+            async function ActivateToken(){
+                let TokenText = document.getElementById("TokenText");
+                let text = TokenText.value;
+                let EncryptedHtml = await fetchData("assets/encrypted-html.txt", "txt");
+
+                let decrypted_msg = await decryptMessage(EncryptedHtml,text);
+                
+                document.open();
+                document.write(decrypted_msg);
+                document.close();
+
+                console.log(decrypted_msg);
+            }
+        </script>
+    </body>
+</html>
